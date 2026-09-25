@@ -1,0 +1,45 @@
+[project]
+name = "verb-classifier-x"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch==2.4.1",
+    "optuna>=5.0.0",
+    "mlflow>=3.16.1",
+    "pandas",
+    "tabulate",
+    "matplotlib>=3.11",
+    "seaborn>=0.13",
+    "scipy",
+    "pydantic>=2.13",
+    "rich",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.9",
+    "ty>=0.0.84",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "doit>=0.37.0",
+    "optuna-dashboard>=0.21.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--cov=src --cov-report=term-missing"
