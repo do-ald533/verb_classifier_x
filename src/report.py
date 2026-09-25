@@ -339,14 +339,13 @@ def _champion_from_leaderboard(
     return condition, network, best_row.to_dict()
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--experiment", default=EXPERIMENT_NAME)
-    parser.add_argument("--out", default="reports")
-    args = parser.parse_args()
+def build_report(experiment: str = EXPERIMENT_NAME, out: str = "reports") -> None:
+    """Builds the full report (leaderboard, all figures, stats, report.md).
 
-    mlflow.set_experiment(args.experiment)
-    out_dir = Path(args.out)
+    Extracted from main() so it can be called directly by src/pipeline.py's
+    Prefect flow, not just from the command line."""
+    mlflow.set_experiment(experiment)
+    out_dir = Path(out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     write_leaderboard_csv(str(out_dir / "leaderboard.csv"))
@@ -421,6 +420,14 @@ def main() -> None:
 
     (out_dir / "report.md").write_text("\n".join(sections))
     logger.info("Report written to %s", out_dir / "report.md")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--experiment", default=EXPERIMENT_NAME)
+    parser.add_argument("--out", default="reports")
+    args = parser.parse_args()
+    build_report(experiment=args.experiment, out=args.out)
 
 
 if __name__ == "__main__":

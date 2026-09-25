@@ -26,8 +26,9 @@ def study_name(condition: LinguisticConfig) -> str:
 def run_condition_study(condition: LinguisticConfig) -> optuna.Study:
     """Runs one condition's Optuna study (search phase only — see confirm.py
     for the confirmation phase that produces the actually-reported number).
-    Raises if the study turns out degenerate, so dodo.py's task_sweep never
-    marks a broken condition as done (plan §1.1 #6)."""
+    Raises if the study turns out degenerate, so src/pipeline.py's
+    sweep_condition_task never marks a broken condition as done
+    (plan §1.1 #6)."""
     mlflow.set_experiment(EXPERIMENT_NAME)
     storage = JournalStorage(JournalFileBackend(JOURNAL_PATH))
 

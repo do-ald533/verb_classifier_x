@@ -6,6 +6,7 @@ dependencies = [
     "torch==2.4.1",
     "optuna>=5.0.0",
     "mlflow>=3.16.1",
+    "prefect>=3.8.6",
     "pandas",
     "tabulate",
     "matplotlib>=3.11",
@@ -21,7 +22,6 @@ dev = [
     "ty>=0.0.84",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "doit>=0.37.0",
     "optuna-dashboard>=0.21.0",
 ]
 
