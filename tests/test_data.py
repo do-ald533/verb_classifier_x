@@ -64,3 +64,15 @@ def test_sampler_matches_token_probabilities():
     irregular_rate = (idx >= dataset.n_regular).float().mean().item()
     assert abs(irregular_rate - 0.7) < 0.02
     assert abs(dataset.p_types.sum().item() - 1.0) < 1e-5
+
+
+def test_sampler_is_uniform_within_each_group():
+    condition = _condition()
+    dataset = build_dataset(condition, torch.Generator().manual_seed(0))
+    idx = sample_token_indices(dataset, 0.7, 200_000, torch.Generator().manual_seed(2))
+    counts = torch.bincount(idx, minlength=dataset.X_types.shape[0]).float()
+    reg = counts[: dataset.n_regular]
+    irr = counts[dataset.n_regular :]
+    assert reg.std() / reg.mean() < 0.2
+    assert irr.std() / irr.mean() < 0.2
+    assert abs(irr.sum().item() / 200_000 - 0.7) < 0.01

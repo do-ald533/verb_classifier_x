@@ -63,8 +63,8 @@ def train_one_run(
     """Trains one (linguistic, network, seed) configuration to convergence
     (or MAX_TOKENS), sampling tokens on the fly instead of cycling a fixed
     dataset; progress is reported against cumulative tokens seen.
-    Data-generation and model-init RNGs are explicit and decoupled from each other and from the global RNG (plan §8), so trials
-    are safe to run in parallel processes and search/confirmation seeds are
+    Data-generation and model-init RNGs are explicit and decoupled from
+    each other and from the global RNG (plan §8), so trials are safe to run in parallel processes and search/confirmation seeds are
     meaningfully independent."""
     start = time.monotonic()
 
@@ -72,7 +72,9 @@ def train_one_run(
     model_gen = torch.Generator().manual_seed(seed + 1_000_000)
 
     dataset = build_dataset(linguistic, data_gen)
-    model = build_mlp(network, input_dim=linguistic.D, n_classes=linguistic.n_classes, generator=model_gen)
+    model = build_mlp(
+        network, input_dim=linguistic.D, n_classes=linguistic.n_classes, generator=model_gen
+    )
     masks = create_masks(model) if linguistic.pruning_enabled else None
     total_params = sum(m.numel() for m in masks.values()) if masks is not None else None
 
