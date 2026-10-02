@@ -5,18 +5,21 @@ from dataclasses import dataclass
 
 import torch
 
-from src.config import LinguisticConfig, N_CLASSES, N_TRAIN_TOKENS, N_WUG, REGULAR_CLASS, VALUES
+from src.config import LinguisticConfig, N_WUG, REGULAR_CLASS, VALUES
 
 
 @dataclass
 class Dataset:
+    """The lexicon (types), not a training set: training tokens are sampled
+    on the fly with `sample_token_indices`."""
+
     X_wug: torch.Tensor
     X_types: torch.Tensor
     y_types: torch.Tensor
-    X_train: torch.Tensor
-    y_train: torch.Tensor
+    p_types: torch.Tensor  # token probability of each type under the sampler
     n_regular: int
     n_irregular: int
+    n_classes: int
 
 
 def generate_all_radicals(D: int, generator: torch.Generator) -> torch.Tensor:
@@ -36,34 +39,40 @@ def build_dataset(condition: LinguisticConfig, generator: torch.Generator) -> Da
     X_wug = all_radicals[:N_WUG]
     X_lexicon = all_radicals[N_WUG : N_WUG + n_regular + n_irregular]
 
-    X_regular = X_lexicon[:n_regular]
-    X_irregular = X_lexicon[n_regular:]
-
+    # Radicals are unique, so no two verbs share an input with different labels.
+    X_types = X_lexicon
     y_regular = torch.full((n_regular,), REGULAR_CLASS, dtype=torch.long)
-    y_irregular = torch.randint(
-        1, N_CLASSES, size=(n_irregular,), generator=generator, dtype=torch.long
-    )
-
-    X_types = torch.cat([X_regular, X_irregular], dim=0)
+    # Each irregular verb gets its own class: 1..n_irregular.
+    y_irregular = torch.arange(1, n_irregular + 1, dtype=torch.long)
     y_types = torch.cat([y_regular, y_irregular], dim=0)
 
-    regular_probs = torch.full((n_regular,), condition.p_token_regular / n_regular)
-    irregular_probs = torch.full((n_irregular,), condition.P_TOKEN_IRREGULAR / n_irregular)
-    sampling_probs = torch.cat([regular_probs, irregular_probs])
-    sampling_probs = sampling_probs / sampling_probs.sum()
-
-    train_indices = torch.multinomial(
-        sampling_probs, num_samples=N_TRAIN_TOKENS, replacement=True, generator=generator
+    p_types = torch.cat(
+        [
+            torch.full((n_regular,), condition.p_token_regular / n_regular),
+            torch.full((n_irregular,), condition.P_TOKEN_IRREGULAR / n_irregular),
+        ]
     )
-    X_train = X_types[train_indices]
-    y_train = y_types[train_indices]
 
     return Dataset(
         X_wug=X_wug,
         X_types=X_types,
         y_types=y_types,
-        X_train=X_train,
-        y_train=y_train,
+        p_types=p_types,
         n_regular=n_regular,
         n_irregular=n_irregular,
+        n_classes=condition.n_classes,
     )
+
+
+def sample_token_indices(
+    dataset: Dataset, p_token_irregular: float, n: int, generator: torch.Generator
+) -> torch.Tensor:
+    """Indices into dataset.X_types for n i.i.d. tokens: first draw whether
+    each token is irregular (prob. p_token_irregular), then a verb uniformly
+    within the chosen group."""
+    is_irregular = torch.rand(n, generator=generator) < p_token_irregular
+    regular_idx = torch.randint(0, dataset.n_regular, (n,), generator=generator)
+    irregular_idx = dataset.n_regular + torch.randint(
+        0, dataset.n_irregular, (n,), generator=generator
+    )
+    return torch.where(is_irregular, irregular_idx, regular_idx)

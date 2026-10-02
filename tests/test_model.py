@@ -1,6 +1,8 @@
 import torch
 
-from src.config import N_CLASSES, NetworkConfig
+from src.config import NetworkConfig
+
+N_CLASSES = 20
 from src.model import build_mlp
 
 

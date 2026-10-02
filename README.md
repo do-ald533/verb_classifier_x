@@ -234,10 +234,18 @@ across the codebase. They live in two places:
 * `src/objective.py`: the `_suggest_network_config` function, which defines
   the Optuna search space for network hyperparameters.
 
-Any change to `N_VERBS_TOTAL`, `N_WUG`, or the `D` values must keep
-`N_VERBS_TOTAL + N_WUG <= 3 ** D` for every value of D in the grid. This is
-enforced by a pydantic validator on `LinguisticConfig` and will raise a
-clear error rather than fail silently if violated.
+Every radical must be unique (otherwise two verbs could share an input but
+have different output classes), so each condition needs
+`LEXICON_SIZE + N_WUG <= 3 ** D`. This is enforced by a pydantic validator on
+`LinguisticConfig`; `generate_condition_grid()` skips infeasible
+`(D, LEXICON_SIZE)` pairs (e.g. 10000 verbs need `D >= 9`).
+
+Training samples tokens on the fly rather than cycling a fixed dataset: each
+step draws regular vs. irregular with probability `P_TOKEN_IRREGULAR`, then a
+verb uniformly within that group (`src.data.sample_token_indices`). Progress
+is measured in cumulative `tokens_seen`; `BATCH_SIZE` (default 1) groups
+draws into batches. Each irregular verb has its own class, so a condition has
+`N_IRREGULAR + 1` output classes.
 
 ## Changing the level of parallelism
 

@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 
 def wug_metrics(logits: torch.Tensor, regular_class: int = 0) -> dict[str, float]:
-    """logits: (N_WUG, N_CLASSES) raw model outputs on the held-out wug set.
+    """logits: (N_WUG, n_classes) raw model outputs on the held-out wug set.
 
     wug_regular_prob is the primary, continuous metric (mean softmax mass on
     the regular class) — replaces the discrete wug_regular_rate as the

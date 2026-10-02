@@ -37,7 +37,7 @@ def _network_config_from_params(params: dict) -> NetworkConfig:
         optimizer_name=params["optimizer_name"],
         learning_rate=params["learning_rate"],
         momentum=params.get("momentum", 0.0),
-        prune_interval_epochs=params.get("prune_interval_epochs"),
+        prune_interval_steps=params.get("prune_interval_steps"),
         max_prune_pct=params.get("max_prune_pct"),
     )
 

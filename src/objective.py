@@ -33,10 +33,10 @@ def _suggest_network_config(trial: optuna.Trial, linguistic: LinguisticConfig) -
     learning_rate = trial.suggest_float("learning_rate", 1e-3, 3e-1, log=True)
     momentum = trial.suggest_float("momentum", 0.0, 0.9) if optimizer_name == "SGD" else 0.0
 
-    prune_interval_epochs = None
+    prune_interval_steps = None
     max_prune_pct = None
     if linguistic.pruning_enabled:
-        prune_interval_epochs = trial.suggest_int("prune_interval_epochs", 100, 2000, log=True)
+        prune_interval_steps = trial.suggest_int("prune_interval_steps", 100, 20000, log=True)
         max_prune_pct = trial.suggest_float("max_prune_pct", 1.0, 50.0)
 
     return NetworkConfig(
@@ -45,7 +45,7 @@ def _suggest_network_config(trial: optuna.Trial, linguistic: LinguisticConfig) -
         optimizer_name=optimizer_name,
         learning_rate=learning_rate,
         momentum=momentum,
-        prune_interval_epochs=prune_interval_epochs,
+        prune_interval_steps=prune_interval_steps,
         max_prune_pct=max_prune_pct,
     )
 
@@ -76,8 +76,8 @@ def make_objective(linguistic: LinguisticConfig):
 
                     def report_intermediate(step_metrics: dict) -> None:
                         mlflow.log_metrics(
-                            {k: v for k, v in step_metrics.items() if k != "epoch"},
-                            step=int(step_metrics["epoch"]),
+                            {k: v for k, v in step_metrics.items() if k != "tokens_seen"},
+                            step=int(step_metrics["tokens_seen"]),
                         )
                         # Pruning (early-stopping bad trials) is reserved for
                         # single-objective conditions only — multi-objective
@@ -86,7 +86,7 @@ def make_objective(linguistic: LinguisticConfig):
                         # don't rely on them (plan §1.1 #11).
                         if not linguistic.is_multi_objective:
                             trial.report(
-                                step_metrics["wug_regular_prob"], step=step_metrics["epoch"]
+                                step_metrics["wug_regular_prob"], step=step_metrics["tokens_seen"]
                             )
                             if trial.should_prune():
                                 raise optuna.TrialPruned()

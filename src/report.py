@@ -21,7 +21,6 @@ from pandas.plotting import parallel_coordinates
 from src.config import (
     CONFIRMATION_SEEDS,
     LinguisticConfig,
-    N_CLASSES,
     N_WUG,
     NetworkConfig,
     generate_condition_grid,
@@ -38,7 +37,8 @@ sns.set_theme(style="whitegrid", palette="colorblind")
 
 LINGUISTIC_FACTOR_COLUMNS = [
     ("params.D", "Radical dimensionality (D)"),
-    ("params.N_IRREGULAR", "# irregular types"),
+    ("params.LEXICON_SIZE", "Lexicon size"),
+    ("params.P_IRREGULAR_TYPES", "Irregular type proportion"),
     ("params.P_TOKEN_IRREGULAR", "Irregular token-frequency skew"),
     ("params.pruning_enabled", "Pruning enabled"),
 ]
@@ -65,7 +65,7 @@ def _network_config_from_mlflow_row(row: pd.Series) -> NetworkConfig:
         return row[col]
 
     momentum = get("momentum")
-    prune_interval = get("prune_interval_epochs")
+    prune_interval = get("prune_interval_steps")
     max_prune_pct = get("max_prune_pct")
 
     return NetworkConfig(
@@ -74,7 +74,7 @@ def _network_config_from_mlflow_row(row: pd.Series) -> NetworkConfig:
         optimizer_name=get("optimizer_name"),
         learning_rate=float(get("learning_rate")),
         momentum=float(momentum) if momentum is not None else 0.0,
-        prune_interval_epochs=int(float(prune_interval)) if prune_interval is not None else None,
+        prune_interval_steps=int(float(prune_interval)) if prune_interval is not None else None,
         max_prune_pct=float(max_prune_pct) if max_prune_pct is not None else None,
     )
 
@@ -157,7 +157,7 @@ def plot_confusion_matrix(
     irregular_true = dataset.y_types[dataset.n_regular :].numpy()
     irregular_pred = preds[dataset.n_regular :].numpy()
 
-    matrix = np.zeros((N_CLASSES, N_CLASSES), dtype=int)
+    matrix = np.zeros((dataset.n_classes, dataset.n_classes), dtype=int)
     for t, p in zip(irregular_true, irregular_pred):
         matrix[t, p] += 1
 
@@ -178,10 +178,10 @@ def plot_wug_response_distribution(
     trained = train_one_run(condition, network, seed, return_model=True)
     with torch.no_grad():
         trained_preds = trained.model(trained.dataset.X_wug).argmax(dim=-1).numpy()
-    trained_counts = np.bincount(trained_preds, minlength=N_CLASSES)
+    trained_counts = np.bincount(trained_preds, minlength=condition.n_classes)
 
     fig, ax = plt.subplots(figsize=(9, 4))
-    ax.bar(range(N_CLASSES), trained_counts)
+    ax.bar(range(condition.n_classes), trained_counts)
     if "baseline_wug_regular_rate" in trained.baseline:
         baseline_regular_count = trained.baseline["baseline_wug_regular_rate"] * N_WUG
         ax.axhline(
@@ -194,7 +194,8 @@ def plot_wug_response_distribution(
     ax.set_xlabel("Predicted class")
     ax.set_ylabel(f"# of {N_WUG} wugs")
     ax.set_title("Wug response distribution (trained champion model)")
-    ax.set_xticks(range(N_CLASSES))
+    if condition.n_classes <= 40:
+        ax.set_xticks(range(condition.n_classes))
     return _savefig(fig, out_dir, "wug_response_distribution")
 
 
@@ -206,9 +207,9 @@ def plot_learning_curves(
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
     for ax, col in zip(axes.flat, ["loss", "regular_acc", "irregular_acc", "wug_regular_prob"]):
-        ax.plot(history["epoch"], history[col])
+        ax.plot(history["tokens_seen"], history[col])
         ax.set_title(col)
-        ax.set_xlabel("epoch")
+        ax.set_xlabel("tokens seen")
     fig.tight_layout()
     return _savefig(fig, out_dir, "learning_curves")
 
@@ -305,7 +306,8 @@ def build_runtime_table() -> pd.DataFrame:
         c
         for c in [
             "params.D",
-            "params.N_IRREGULAR",
+            "params.LEXICON_SIZE",
+            "params.P_IRREGULAR_TYPES",
             "params.P_TOKEN_IRREGULAR",
             "params.pruning_enabled",
         ]
@@ -331,7 +333,8 @@ def _champion_from_leaderboard(
     best_row = confirmation_df.iloc[0]
     condition = LinguisticConfig(
         D=int(float(best_row["params.D"])),
-        N_IRREGULAR=int(float(best_row["params.N_IRREGULAR"])),
+        LEXICON_SIZE=int(float(best_row["params.LEXICON_SIZE"])),
+        P_IRREGULAR_TYPES=float(best_row["params.P_IRREGULAR_TYPES"]),
         P_TOKEN_IRREGULAR=float(best_row["params.P_TOKEN_IRREGULAR"]),
         pruning_enabled=str(best_row["params.pruning_enabled"]) == "True",
     )

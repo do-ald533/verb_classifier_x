@@ -8,8 +8,15 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from src.config import LinguisticConfig, N_CLASSES, NetworkConfig, REGULAR_CLASS
-from src.data import Dataset, build_dataset
+from src.config import (
+    BATCH_SIZE,
+    EVAL_EVERY_TOKENS,
+    LinguisticConfig,
+    MAX_TOKENS,
+    NetworkConfig,
+    REGULAR_CLASS,
+)
+from src.data import Dataset, build_dataset, sample_token_indices
 from src.logging_config import get_logger
 from src.metrics import wug_metrics
 from src.model import build_mlp
@@ -23,8 +30,8 @@ from src.pruning import (
 
 logger = get_logger(__name__)
 
-MAX_EPOCHS = 100_000
-EVAL_EVERY = 1000
+EVAL_EVERY_STEPS = max(1, EVAL_EVERY_TOKENS // BATCH_SIZE)
+MAX_STEPS = max(1, MAX_TOKENS // BATCH_SIZE)
 EARLY_STOP_PATIENCE_CHECKPOINTS = 5
 EARLY_STOP_MIN_DELTA = 1e-4
 
@@ -54,8 +61,9 @@ def train_one_run(
     return_model: bool = False,
 ) -> TrainResult:
     """Trains one (linguistic, network, seed) configuration to convergence
-    (or MAX_EPOCHS). Data-generation and model-init RNGs are explicit and
-    decoupled from each other and from the global RNG (plan §8), so trials
+    (or MAX_TOKENS), sampling tokens on the fly instead of cycling a fixed
+    dataset; progress is reported against cumulative tokens seen.
+    Data-generation and model-init RNGs are explicit and decoupled from each other and from the global RNG (plan §8), so trials
     are safe to run in parallel processes and search/confirmation seeds are
     meaningfully independent."""
     start = time.monotonic()
@@ -64,7 +72,7 @@ def train_one_run(
     model_gen = torch.Generator().manual_seed(seed + 1_000_000)
 
     dataset = build_dataset(linguistic, data_gen)
-    model = build_mlp(network, input_dim=linguistic.D, n_classes=N_CLASSES, generator=model_gen)
+    model = build_mlp(network, input_dim=linguistic.D, n_classes=linguistic.n_classes, generator=model_gen)
     masks = create_masks(model) if linguistic.pruning_enabled else None
     total_params = sum(m.numel() for m in masks.values()) if masks is not None else None
 
@@ -89,14 +97,24 @@ def train_one_run(
     checkpoints_without_improvement = 0
     final_metrics: dict = {}
 
-    for epoch in range(MAX_EPOCHS):
+    for step in range(MAX_STEPS):
+        if step % EVAL_EVERY_STEPS == 0:
+            chunk = sample_token_indices(
+                dataset,
+                linguistic.P_TOKEN_IRREGULAR,
+                EVAL_EVERY_STEPS * BATCH_SIZE,
+                data_gen,
+            )
+        offset = (step % EVAL_EVERY_STEPS) * BATCH_SIZE
+        idx = chunk[offset : offset + BATCH_SIZE]
+
         model.train()
-        logits = model(dataset.X_train)
-        loss = criterion(logits, dataset.y_train)
+        logits = model(dataset.X_types[idx])
+        loss = criterion(logits, dataset.y_types[idx])
 
         if not torch.isfinite(loss):
             raise TrainingDivergedError(
-                f"Non-finite loss at epoch {epoch} "
+                f"Non-finite loss at step {step} "
                 f"(lr={network.learning_rate}, optimizer={network.optimizer_name})"
             )
 
@@ -112,7 +130,7 @@ def train_one_run(
 
         if masks is not None:
             apply_masks(model, masks)
-            if network.prune_interval_epochs and (epoch + 1) % network.prune_interval_epochs == 0:
+            if network.prune_interval_steps and (step + 1) % network.prune_interval_steps == 0:
                 _, active_count, _ = count_active_parameters(masks)
                 pruned_so_far = total_params - active_count
                 max_allowed_pruned = (
@@ -124,10 +142,22 @@ def train_one_run(
                     prune_one_parameter(model, masks)
                     apply_masks(model, masks)
 
-        if (epoch + 1) % EVAL_EVERY == 0 or epoch == MAX_EPOCHS - 1:
+        if (step + 1) % EVAL_EVERY_STEPS == 0 or step == MAX_STEPS - 1:
             model.eval()
             with torch.no_grad():
                 type_logits = model(dataset.X_types)
+                # Expected per-token loss under the sampling distribution;
+                # a stable convergence signal (single-token losses are noisy).
+                eval_loss = (
+                    (
+                        nn.functional.cross_entropy(
+                            type_logits, dataset.y_types, reduction="none"
+                        )
+                        * dataset.p_types
+                    )
+                    .sum()
+                    .item()
+                )
                 type_preds = type_logits.argmax(dim=-1)
                 acc_types = (type_preds == dataset.y_types).float().mean().item()
                 regular_acc = (
@@ -146,8 +176,8 @@ def train_one_run(
                     _, _, active_pct = count_active_parameters(masks)
 
             step_metrics = {
-                "epoch": epoch + 1,
-                "loss": loss.item(),
+                "tokens_seen": (step + 1) * BATCH_SIZE,
+                "loss": eval_loss,
                 "acc_types": acc_types,
                 "regular_acc": regular_acc,
                 "irregular_acc": irregular_acc,
@@ -161,15 +191,15 @@ def train_one_run(
             if report_intermediate is not None:
                 report_intermediate(step_metrics)
 
-            if best_loss - loss.item() > EARLY_STOP_MIN_DELTA:
-                best_loss = loss.item()
+            if best_loss - eval_loss > EARLY_STOP_MIN_DELTA:
+                best_loss = eval_loss
                 checkpoints_without_improvement = 0
             else:
                 checkpoints_without_improvement += 1
                 if checkpoints_without_improvement >= EARLY_STOP_PATIENCE_CHECKPOINTS:
                     logger.info(
-                        "Early stop at epoch %d (no loss improvement for %d checkpoints)",
-                        epoch + 1,
+                        "Early stop at %d tokens (no loss improvement for %d checkpoints)",
+                        (step + 1) * BATCH_SIZE,
                         EARLY_STOP_PATIENCE_CHECKPOINTS,
                     )
                     break
