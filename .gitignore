@@ -10,3 +10,5 @@ reports/.done/
 .ruff_cache/
 .coverage
 *.egg-info/
+runs/
+mlflow.db

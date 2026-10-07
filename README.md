@@ -223,6 +223,76 @@ the wug response distribution plotted against the untrained model's baseline
 response, per condition hyperparameter importance and correlation plots, and
 the accuracy versus sparsity Pareto front for pruning enabled conditions.
 
+## Declarative experiments (JSON)
+
+Besides the fixed Optuna grid (`python -m src.pipeline`), experiments can be
+described in a JSON file and run as a DAG:
+
+```bash
+uv run python -m src validate experiments/example_smoke.json   # check + plan, writes nothing
+uv run python -m src run experiments/example_smoke.json        # Prefect, parallel
+uv run python -m src run experiments/example_smoke.json --engine local   # sequential, no server
+uv run python -m src report experiments/example_smoke.json     # rebuild aggregate + report
+```
+
+```
+config.json -> validate -> build_dataset -> train -> evaluate -> aggregate -> report
+                           (per dataset)   (per dataset x network x seed)
+```
+
+Every node reads/writes only the disk, keyed by the **content hash** of its
+spec. Re-running skips what exists (`--force` ignores the cache), datasets are
+shared across networks and across experiments, and a failed run
+(`diverged`/`error`) is recorded in its manifest without stopping the DAG.
+
+### File format
+
+* `defaults.dataset` / `defaults.network`: base values for every entry.
+* `datasets[]` / `networks[]`: `id`, optional `extends` (inherit another entry),
+  `spec` (overrides) and optional `matrix` (cartesian product; ids become
+  `base.hidden=[8]`...). A dataset can also be `{"id": ..., "path": "<dir>"}` to
+  reuse a dataset directory that already exists.
+* `runs[]`: `datasets`/`networks` (ids, a matrix group id, or `"*"`) and `seeds`.
+  The run seed fills `init_seed` and `data_order_seed` unless the network sets them.
+* `tracking`: `{"mlflow": true, "uri": null, "experiment": null}`. Default store is a
+  SQLite file inside `output_dir`.
+* `output_dir` (default `runs`, overridable with `--output-dir`).
+
+Dataset spec (`src/specs.py::DatasetSpec`): `D`, `alphabet`, `encoding`
+(`raw`/`one_hot`), `lexicon_size`, `p_irregular_types`, `p_token_irregular`,
+`n_wug`, `freq_distribution` (`uniform`/`zipf` + `zipf_exponent`), `class_scheme`
+(`unique_per_irregular`/`shared_k`+`k_classes`/`by_cluster`), `irregular_placement`
+(`random`/`clustered`+`n_clusters`), `wug_strategy`
+(`random`/`near_irregular`/`far_from_lexicon`), `sampling`
+(`stream`/`finite`+`train_size`), `seed`. Infeasible combinations
+(`|alphabet|**D < lexicon_size + n_wug`, ...) are rejected at validation time.
+
+Network spec (`NetworkSpec`): `arch` (`mlp`/`transformer`), `hidden`, `activation`,
+`dropout`, `norm`, `init`, `bias`, transformer `d_model`/`n_heads`/`n_layers`/`ff_dim`
+(each radical position is a token), `optimizer`, `lr`, `momentum`, `weight_decay`,
+`lr_schedule`, `grad_clip`, `batch_size`, `init_seed`/`data_order_seed`,
+`max_tokens`, `eval_every_tokens`, early-stop settings, pruning settings.
+
+### Output layout
+
+```
+runs/datasets/<dataset_hash>/        spec.json data.pt stats.json
+runs/<experiment>/config.json        your file, verbatim
+runs/<experiment>/resolved_config.json   after defaults/extends/matrix, with all hashes
+runs/<experiment>/events.jsonl       experiment-level event stream (JSONL)
+runs/<experiment>/trainings/<run_hash>/
+    spec.json manifest.json (status, git sha, versions, timing) events.jsonl
+    history.jsonl model.pt metrics.json predictions.npz
+runs/<experiment>/{runs.csv,aggregate.csv,report/report.md}
+```
+
+Every event line carries `experiment`, `stage`, `dataset_id`, `network_id`,
+`seed`, `run_hash` and `dataset_hash`, so any line can be traced to its
+inputs. `VERB_TORCH_THREADS` (default 1) sets torch threads per training task.
+Under Prefect's temporary SQLite API server, many workers can log
+"database is locked" noise; results are unaffected (use a real Prefect server
+to avoid it).
+
 ## Changing the hyperparameter space
 
 The 36 condition grid, the fixed constants (lexicon size, number of wugs,

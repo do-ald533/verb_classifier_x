@@ -1,0 +1,22 @@
+{
+  "experiment": "smoke",
+  "description": "Tiny end-to-end example: 2 datasets x 3 networks x 2 seeds.",
+  "tracking": {"mlflow": false},
+  "defaults": {
+    "network": {"max_tokens": 6000, "eval_every_tokens": 2000, "early_stop": false}
+  },
+  "datasets": [
+    {"id": "base", "spec": {"D": 6, "lexicon_size": 100, "p_irregular_types": 0.1,
+                            "p_token_irregular": 0.7, "seed": 0}},
+    {"id": "zipf_clustered", "extends": "base",
+     "spec": {"freq_distribution": "zipf", "irregular_placement": "clustered",
+              "n_clusters": 2, "class_scheme": "by_cluster", "wug_strategy": "near_irregular"}}
+  ],
+  "networks": [
+    {"id": "mlp", "spec": {"hidden": [16], "optimizer": "adam", "lr": 0.01}},
+    {"id": "mlp_deep_tanh", "extends": "mlp", "spec": {"hidden": [16, 16], "activation": "tanh"}},
+    {"id": "transformer", "spec": {"arch": "transformer", "d_model": 16, "n_heads": 2,
+                                    "n_layers": 1, "ff_dim": 32, "lr": 0.003}}
+  ],
+  "runs": [{"datasets": "*", "networks": "*", "seeds": [0, 1]}]
+}

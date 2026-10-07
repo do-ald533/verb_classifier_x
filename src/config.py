@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from src.specs import DatasetSpec, NetworkSpec
+
 # --------------------------------------------------------------------------
 # Fixed constants.
 #
@@ -111,6 +113,16 @@ class LinguisticConfig(BaseModel):
             else TRIAL_BUDGET_SINGLE_OBJECTIVE
         )
 
+    def to_dataset_spec(self, seed: int) -> DatasetSpec:
+        return DatasetSpec(
+            D=self.D,
+            lexicon_size=self.LEXICON_SIZE,
+            p_irregular_types=self.P_IRREGULAR_TYPES,
+            p_token_irregular=self.P_TOKEN_IRREGULAR,
+            n_wug=N_WUG,
+            seed=seed,
+        )
+
     def as_params(self) -> dict:
         return {
             "D": self.D,
@@ -136,6 +148,23 @@ class NetworkConfig(BaseModel):
 
     def as_params(self) -> dict:
         return self.model_dump()
+
+    def to_network_spec(self, seed: int) -> NetworkSpec:
+        """Legacy (Optuna pipeline) network -> declarative spec."""
+        return NetworkSpec(
+            arch="mlp",
+            hidden=(self.hidden_dim,) * self.num_hidden_layers,
+            optimizer=self.optimizer_name.lower(),
+            lr=self.learning_rate,
+            momentum=self.momentum,
+            batch_size=BATCH_SIZE,
+            max_tokens=MAX_TOKENS,
+            eval_every_tokens=EVAL_EVERY_TOKENS,
+            prune_interval_steps=self.prune_interval_steps,
+            max_prune_pct=self.max_prune_pct,
+            init_seed=seed + 1_000_000,
+            data_order_seed=seed,
+        )
 
 
 def generate_condition_grid() -> list[LinguisticConfig]:
