@@ -8,16 +8,18 @@ reach it is logged and never fails a run.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import platform
 import subprocess
 import time
+from functools import cache
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import orjson
 
 from src.logging_config import get_logger
 
@@ -29,39 +31,42 @@ def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, float) and value != value:  # NaN
-        return None
-    if isinstance(value, dict):
-        return {str(k): _jsonable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_jsonable(v) for v in value]
-    if hasattr(value, "item") and callable(value.item):
-        return _jsonable(value.item())
-    return value
+_OPTIONS = orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY
+
+
+def _default(value: Any) -> Any:
+    if hasattr(value, "item") and callable(value.item):  # torch scalars
+        return value.item()
+    return str(value)  # paths and anything else odd: readable, never a crash
+
+
+def dumps(obj: Any, *, indent: bool = False) -> bytes:
+    """orjson: ~5-10x faster than json, and NaN/inf become null."""
+    option = _OPTIONS | (orjson.OPT_INDENT_2 if indent else 0)
+    return orjson.dumps(obj, default=_default, option=option)
 
 
 def write_json(path: Path, obj: Any) -> None:
     """Atomic (temp file + rename) so readers never see a partial file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(_jsonable(obj), indent=2, sort_keys=True))
+    tmp.write_bytes(dumps(obj, indent=True))
     os.replace(tmp, path)
 
 
 def read_json(path: Path) -> Any:
-    return json.loads(path.read_text())
+    return orjson.loads(path.read_bytes())
 
 
 def write_jsonl(path: Path, rows: Iterable[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text("".join(json.dumps(_jsonable(r)) + "\n" for r in rows))
+    tmp.write_bytes(b"".join(dumps(r) + b"\n" for r in rows))
     os.replace(tmp, path)
 
 
 def read_jsonl(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return [orjson.loads(line) for line in path.read_bytes().splitlines() if line.strip()]
 
 
 class EventLog:
@@ -76,14 +81,11 @@ class EventLog:
         for p in self.paths:
             p.parent.mkdir(parents=True, exist_ok=True)
 
-    def bind(self, **more: Any) -> EventLog:
-        return EventLog(self.paths, **{**self.context, **more})
-
     def emit(self, event: str, level: str = "INFO", **fields: Any) -> None:
         record = {"ts": now_iso(), "level": level, "event": event, **self.context, **fields}
-        line = json.dumps(_jsonable(record)) + "\n"
+        line = dumps(record) + b"\n"
         for p in self.paths:
-            with open(p, "a") as handle:
+            with open(p, "ab") as handle:
                 handle.write(line)  # one write call per line: safe for concurrent appenders
         if event != "checkpoint":  # checkpoints are far too chatty for the console
             logger.log(
@@ -107,6 +109,7 @@ def _git(*args: str) -> str | None:
         return None
 
 
+@cache
 def environment_info() -> dict[str, Any]:
     import numpy
     import torch

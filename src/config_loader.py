@@ -13,6 +13,7 @@ import itertools
 import json
 import re
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Literal
 
@@ -109,14 +110,29 @@ class RunSpec:
     seed: int
     dataset_hash: str
     net: NetworkSpec  # seeds resolved
+    run_hash: str = field(init=False)
 
-    @property
-    def run_hash(self) -> str:
-        return hash_payload({"dataset": self.dataset_hash, "network": self.net.hash})
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "run_hash", hash_payload({"dataset": self.dataset_hash, "network": self.net.hash})
+        )
 
     @property
     def label(self) -> str:
         return f"{self.dataset_id}|{self.network_id}|seed={self.seed}"
+
+
+@dataclass(frozen=True)
+class ExperimentContext:
+    """The few experiment-level fields a node needs. Tasks receive this
+    instead of the whole ResolvedExperiment, so submitting thousands of runs
+    does not pickle thousands of copies of the full run list."""
+
+    name: str
+    output_dir: str
+    tracking: TrackingConfig
+    evaluation: EvaluationConfig
+    config_hash: str
 
 
 @dataclass
@@ -132,7 +148,7 @@ class ResolvedExperiment:
     source_path: str | None = None
     raw: dict = field(default_factory=dict)
 
-    @property
+    @cached_property
     def config_hash(self) -> str:
         return hash_payload(
             {
@@ -140,6 +156,12 @@ class ResolvedExperiment:
                 "networks": {k: v.spec.hash for k, v in sorted(self.networks.items())},
                 "runs": sorted(r.run_hash for r in self.runs),
             }
+        )
+
+    @cached_property
+    def context(self) -> ExperimentContext:
+        return ExperimentContext(
+            self.name, self.output_dir, self.tracking, self.evaluation, self.config_hash
         )
 
     def summary(self) -> dict:

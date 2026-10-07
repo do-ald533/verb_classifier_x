@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from functools import cached_property
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -30,8 +31,9 @@ def hash_payload(obj: Any) -> str:
 class _Spec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    @property
+    @cached_property
     def hash(self) -> str:
+        # specs are frozen, so the hash can be computed once per instance
         return hash_payload(self.model_dump(mode="json"))
 
 
@@ -197,8 +199,10 @@ class NetworkSpec(_Spec):
     def with_seed(self, seed: int) -> NetworkSpec:
         """Fills unset seeds from the run seed, so the result (and its hash)
         fully determines the training run."""
-        return self.model_copy(
-            update={
+        # rebuilt (not model_copy'd) so the cached hash is not carried over
+        return NetworkSpec(
+            **{
+                **self.model_dump(),
                 "init_seed": seed if self.init_seed is None else self.init_seed,
                 "data_order_seed": seed if self.data_order_seed is None else self.data_order_seed,
             }

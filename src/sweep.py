@@ -60,9 +60,7 @@ def run_condition_study(condition: LinguisticConfig) -> optuna.Study:
         # instead of the whole study crashing (plan §1.1 #5/#9).
         study.optimize(objective, n_trials=condition.trial_budget, catch=(RuntimeError,))
 
-        complete_trials = [
-            t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE
-        ]
+        complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         n_complete = len(complete_trials)
         mlflow.log_metric("n_complete_trials", n_complete)
         mlflow.log_metric("n_total_trials", len(study.trials))

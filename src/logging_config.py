@@ -33,13 +33,9 @@ def get_logger(name: str) -> logging.Logger:
     logger.addHandler(console_handler)
 
     LOG_DIR.mkdir(exist_ok=True)
-    file_handler = RotatingFileHandler(
-        LOG_DIR / "pipeline.log", maxBytes=5_000_000, backupCount=3
-    )
+    file_handler = RotatingFileHandler(LOG_DIR / "pipeline.log", maxBytes=5_000_000, backupCount=3)
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
-    )
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
     logger.addHandler(file_handler)
 
     logger.propagate = False

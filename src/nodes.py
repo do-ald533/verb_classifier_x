@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shutil
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,7 +30,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from src.config_loader import ResolvedExperiment, RunSpec
+from src.config_loader import ExperimentContext, ResolvedDataset, ResolvedExperiment, RunSpec
 from src.data import (
     build_dataset,
     dataset_dir,
@@ -73,11 +74,11 @@ class Layout:
         return self.exp_dir / "trainings" / run_hash
 
     @staticmethod
-    def of(exp: ResolvedExperiment) -> Layout:
+    def of(exp: ExperimentContext | ResolvedExperiment) -> Layout:
         return Layout(Path(exp.output_dir), exp.name)
 
 
-def experiment_events(exp: ResolvedExperiment, **context: Any) -> EventLog:
+def experiment_events(exp: ExperimentContext | ResolvedExperiment, **context: Any) -> EventLog:
     layout = Layout.of(exp)
     return EventLog([layout.events_path], experiment=exp.name, **context)
 
@@ -101,10 +102,10 @@ def prepare_experiment(exp: ResolvedExperiment) -> None:
 # --------------------------------------------------------------------------
 # node 1: dataset
 # --------------------------------------------------------------------------
-def node_build_dataset(exp: ResolvedExperiment, dataset_id: str, force: bool = False) -> dict:
-    ds = exp.datasets[dataset_id]
-    layout = Layout.of(exp)
-    events = experiment_events(exp, stage="dataset", dataset_id=dataset_id, dataset_hash=ds.hash)
+def node_build_dataset(ctx: ExperimentContext, ds: ResolvedDataset, force: bool = False) -> dict:
+    dataset_id = ds.id
+    layout = Layout.of(ctx)
+    events = experiment_events(ctx, stage="dataset", dataset_id=dataset_id, dataset_hash=ds.hash)
 
     if ds.path is not None:  # user-supplied, pre-existing dataset
         directory = Path(ds.path)
@@ -120,8 +121,6 @@ def node_build_dataset(exp: ResolvedExperiment, dataset_id: str, force: bool = F
     watch = Stopwatch()
     events.emit("dataset_build_start", spec=ds.spec.model_dump(mode="json"))
     if force and directory.exists():
-        import shutil
-
         shutil.rmtree(directory)
     saved = save_dataset(build_dataset(ds.spec), layout.root)
     stats = read_json(saved / "stats.json")
@@ -132,11 +131,11 @@ def node_build_dataset(exp: ResolvedExperiment, dataset_id: str, force: bool = F
 # --------------------------------------------------------------------------
 # node 2: train
 # --------------------------------------------------------------------------
-def _run_events(exp: ResolvedExperiment, run: RunSpec, stage: str) -> EventLog:
-    layout = Layout.of(exp)
+def _run_events(ctx: ExperimentContext, run: RunSpec, stage: str) -> EventLog:
+    layout = Layout.of(ctx)
     return EventLog(
         [layout.training_dir(run.run_hash) / "events.jsonl", layout.events_path],
-        experiment=exp.name,
+        experiment=ctx.name,
         stage=stage,
         dataset_id=run.dataset_id,
         network_id=run.network_id,
@@ -147,16 +146,16 @@ def _run_events(exp: ResolvedExperiment, run: RunSpec, stage: str) -> EventLog:
 
 
 def node_train(
-    exp: ResolvedExperiment, run: RunSpec, dataset_info: dict, force: bool = False
+    ctx: ExperimentContext, run: RunSpec, dataset_info: dict, force: bool = False
 ) -> dict:
     """Trains one run. Never raises for a run-level failure: the outcome
     (ok / diverged / error) is recorded in manifest.json so the DAG keeps
     going and the report can show what failed and why."""
-    layout = Layout.of(exp)
+    layout = Layout.of(ctx)
     run_dir = layout.training_dir(run.run_hash)
     manifest_path = run_dir / "manifest.json"
     run_dir.mkdir(parents=True, exist_ok=True)
-    events = _run_events(exp, run, "train")
+    events = _run_events(ctx, run, "train")
 
     if manifest_path.exists() and not force:
         manifest = read_json(manifest_path)
@@ -240,7 +239,7 @@ def node_train(
 # node 3: evaluate
 # --------------------------------------------------------------------------
 def node_evaluate(
-    exp: ResolvedExperiment,
+    ctx: ExperimentContext,
     run: RunSpec,
     train_manifest: dict,
     dataset_info: dict,
@@ -249,10 +248,10 @@ def node_evaluate(
     """Re-loads the saved model and computes the final metrics from scratch
     (so a model can be re-evaluated without retraining), plus learning-speed
     measures from the training history."""
-    layout = Layout.of(exp)
+    layout = Layout.of(ctx)
     run_dir = layout.training_dir(run.run_hash)
     metrics_path = run_dir / "metrics.json"
-    events = _run_events(exp, run, "evaluate")
+    events = _run_events(ctx, run, "evaluate")
 
     if train_manifest.get("status") != "ok":
         events.emit(
@@ -297,15 +296,15 @@ def node_evaluate(
         "wall_clock_seconds": summary["wall_clock_seconds"],
         "stop_reason": summary["stop_reason"],
         **summary["baseline"],
-        **tokens_to_accuracy(history, exp.evaluation.accuracy_thresholds),
+        **tokens_to_accuracy(history, ctx.evaluation.accuracy_thresholds),
     }
     np.savez_compressed(run_dir / "predictions.npz", **predictions(model, dataset))
     write_json(metrics_path, {"run_hash": run.run_hash, "metrics": metrics})
 
     mlflow_run_id = mirror_to_mlflow(
-        tracking=exp.tracking,
-        output_dir=exp.output_dir,
-        experiment=exp.name,
+        tracking=ctx.tracking,
+        output_dir=ctx.output_dir,
+        experiment=ctx.name,
         run_name=f"{run.dataset_id}|{run.network_id}|seed{run.seed}",
         params={
             **flatten("dataset", dataset.spec),
@@ -315,11 +314,11 @@ def node_evaluate(
             "seed": run.seed,
         },
         tags={
-            "experiment": exp.name,
+            "experiment": ctx.name,
             "run_hash": run.run_hash,
             "dataset_hash": run.dataset_hash,
             "network_hash": run.net.hash,
-            "config_hash": exp.config_hash,
+            "config_hash": ctx.config_hash,
             "git_sha": str(read_json(run_dir / "manifest.json")["environment"]["git_sha"]),
         },
         history=history,

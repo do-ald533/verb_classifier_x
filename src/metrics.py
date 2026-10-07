@@ -32,10 +32,3 @@ def wug_metrics(logits: torch.Tensor, regular_class: int = 0) -> dict[str, float
         "wug_entropy": entropy,
         "wug_top2_margin": top2_margin,
     }
-
-
-def wug_response_distribution(logits: torch.Tensor, n_classes: int) -> torch.Tensor:
-    """Count of wugs assigned to each class — richer than the scalar rate,
-    reveals 'gang effects' from a dominant irregular pattern (plan §6.5)."""
-    preds = logits.argmax(dim=-1)
-    return torch.bincount(preds, minlength=n_classes)

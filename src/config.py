@@ -21,7 +21,6 @@ from src.specs import DatasetSpec, NetworkSpec
 # 3**D >= LEXICON_SIZE + N_WUG (enforced in LinguisticConfig and respected
 # by generate_condition_grid, which skips infeasible (D, size) pairs).
 # --------------------------------------------------------------------------
-VALUES = (-1.0, 0.0, 1.0)
 REGULAR_CLASS = 0
 N_WUG = 30
 BATCH_SIZE = 1  # tokens per optimizer step; 1 = pure token-by-token sampling
@@ -82,10 +81,6 @@ class LinguisticConfig(BaseModel):
     def n_classes(self) -> int:
         """One class per irregular verb, plus the shared regular class."""
         return self.N_IRREGULAR + 1
-
-    @property
-    def p_token_regular(self) -> float:
-        return 1.0 - self.P_TOKEN_IRREGULAR
 
     @property
     def lexicon_density(self) -> float:

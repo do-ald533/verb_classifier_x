@@ -55,9 +55,7 @@ def _confirm_one(condition: LinguisticConfig, network: NetworkConfig, label: str
 
     with mlflow.start_run(run_name=f"{condition.id}_confirmation_{label}", nested=True) as run:
         mlflow.set_tag("run_type", "confirmation")
-        mlflow.log_params(
-            {**condition.as_params(), **network.as_params(), "champion_label": label}
-        )
+        mlflow.log_params({**condition.as_params(), **network.as_params(), "champion_label": label})
 
         for seed in CONFIRMATION_SEEDS:
             try:
@@ -94,8 +92,7 @@ def _confirm_one(condition: LinguisticConfig, network: NetworkConfig, label: str
         prior_best = mlflow.search_runs(
             experiment_names=[EXPERIMENT_NAME],
             filter_string=(
-                "tags.run_type = 'confirmation' "
-                f"and attributes.run_id != '{run.info.run_id}'"
+                f"tags.run_type = 'confirmation' and attributes.run_id != '{run.info.run_id}'"
             ),
             order_by=["metrics.wug_regular_prob DESC"],
             max_results=1,

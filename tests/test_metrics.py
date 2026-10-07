@@ -1,6 +1,6 @@
 import torch
 
-from src.metrics import wug_metrics, wug_response_distribution
+from src.metrics import wug_metrics
 
 
 def test_uniform_logits_give_uniform_regular_prob():
@@ -32,10 +32,3 @@ def test_wug_regular_prob_is_continuous_not_just_argmax():
     rate_b = wug_metrics(logits_b)["wug_regular_rate"]
     assert prob_a != prob_b
     assert rate_a == rate_b == 1.0  # argmax is identical in both cases
-
-
-def test_wug_response_distribution_sums_to_n():
-    logits = torch.randn(30, 20)
-    dist = wug_response_distribution(logits, n_classes=20)
-    assert dist.sum().item() == 30
-    assert dist.shape[0] == 20

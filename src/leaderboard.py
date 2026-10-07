@@ -34,7 +34,9 @@ def print_leaderboard(top_n: int = 10) -> pd.DataFrame:
         print("No confirmation runs yet.")
         return df
     top = df.head(top_n)
-    cols = ["run_id"] + [c for c in top.columns if c.startswith("metrics.") or c.startswith("params.")]
+    cols = ["run_id"] + [
+        c for c in top.columns if c.startswith("metrics.") or c.startswith("params.")
+    ]
     print(top[cols].to_string(index=False))
     return top
 

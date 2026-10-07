@@ -19,7 +19,9 @@ PRIMARY_HYPOTHESES = {
 METRIC_COLUMN = "metrics.wug_regular_prob"
 
 
-def benjamini_hochberg(p_values: dict[str, float], alpha: float = 0.05) -> dict[str, dict[str, Any]]:
+def benjamini_hochberg(
+    p_values: dict[str, float], alpha: float = 0.05
+) -> dict[str, dict[str, Any]]:
     """Benjamini-Hochberg FDR correction across the given named p-values."""
     items = sorted(p_values.items(), key=lambda kv: kv[1])
     m = len(items)

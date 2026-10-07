@@ -15,7 +15,7 @@ from prefect.cache_policies import NO_CACHE
 from prefect.futures import wait
 from prefect.task_runners import ProcessPoolTaskRunner
 
-from src.config_loader import ResolvedExperiment, RunSpec
+from src.config_loader import ExperimentContext, ResolvedDataset, ResolvedExperiment, RunSpec
 from src.exp_report import build_experiment_report
 from src.logging_config import get_logger
 from src.nodes import (
@@ -45,43 +45,49 @@ def _finish(exp: ResolvedExperiment, run_report: bool) -> None:
 # ----------------------------- local engine -------------------------------
 def run_local(exp: ResolvedExperiment, force: bool = False, run_report: bool = True) -> None:
     prepare_experiment(exp)
-    infos = {ds_id: node_build_dataset(exp, ds_id, force) for ds_id in _needed_datasets(exp)}
+    ctx = exp.context
+    infos = {
+        ds_id: node_build_dataset(ctx, exp.datasets[ds_id], force)
+        for ds_id in _needed_datasets(exp)
+    }
     for run in exp.runs:
         info = infos[run.dataset_id]
-        manifest = node_train(exp, run, info, force)
-        node_evaluate(exp, run, manifest, info, force)
+        manifest = node_train(ctx, run, info, force)
+        node_evaluate(ctx, run, manifest, info, force)
     _finish(exp, run_report)
 
 
 # ----------------------------- prefect engine -----------------------------
 @task(name="build-dataset", cache_policy=NO_CACHE)
-def build_dataset_task(exp: ResolvedExperiment, dataset_id: str, force: bool) -> dict:
-    return node_build_dataset(exp, dataset_id, force)
+def build_dataset_task(ctx: ExperimentContext, dataset: ResolvedDataset, force: bool) -> dict:
+    return node_build_dataset(ctx, dataset, force)
 
 
 @task(name="train", cache_policy=NO_CACHE)
-def train_task(exp: ResolvedExperiment, run: RunSpec, dataset_info: dict, force: bool) -> dict:
-    return node_train(exp, run, dataset_info, force)
+def train_task(ctx: ExperimentContext, run: RunSpec, dataset_info: dict, force: bool) -> dict:
+    return node_train(ctx, run, dataset_info, force)
 
 
 @task(name="evaluate", cache_policy=NO_CACHE)
 def evaluate_task(
-    exp: ResolvedExperiment, run: RunSpec, manifest: dict, dataset_info: dict, force: bool
+    ctx: ExperimentContext, run: RunSpec, manifest: dict, dataset_info: dict, force: bool
 ) -> dict | None:
-    return node_evaluate(exp, run, manifest, dataset_info, force)
+    return node_evaluate(ctx, run, manifest, dataset_info, force)
 
 
 @flow(name="verb-experiment", validate_parameters=False)
 def experiment_flow(exp: ResolvedExperiment, force: bool = False, run_report: bool = True) -> None:
     prepare_experiment(exp)
+    ctx = exp.context
     dataset_futures = {
-        ds_id: build_dataset_task.submit(exp, ds_id, force) for ds_id in _needed_datasets(exp)
+        ds_id: build_dataset_task.submit(ctx, exp.datasets[ds_id], force)
+        for ds_id in _needed_datasets(exp)
     }
     train_futures = [
-        train_task.submit(exp, run, dataset_futures[run.dataset_id], force) for run in exp.runs
+        train_task.submit(ctx, run, dataset_futures[run.dataset_id], force) for run in exp.runs
     ]
     evaluate_futures = [
-        evaluate_task.submit(exp, run, train_future, dataset_futures[run.dataset_id], force)
+        evaluate_task.submit(ctx, run, train_future, dataset_futures[run.dataset_id], force)
         for run, train_future in zip(exp.runs, train_futures, strict=True)
     ]
     wait(evaluate_futures)

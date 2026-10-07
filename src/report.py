@@ -25,7 +25,11 @@ from src.config import (
     NetworkConfig,
     generate_condition_grid,
 )
-from src.leaderboard import check_trial_count_consistency, load_confirmation_runs, write_leaderboard_csv
+from src.leaderboard import (
+    check_trial_count_consistency,
+    load_confirmation_runs,
+    write_leaderboard_csv,
+)
 from src.logging_config import get_logger
 from src.stats import run_primary_hypothesis_tests
 from src.sweep import EXPERIMENT_NAME, JOURNAL_PATH, study_name
@@ -83,7 +87,9 @@ def plot_leaderboard_table(df: pd.DataFrame) -> str:
     if df.empty:
         return "_no confirmation runs yet_"
     cols = ["run_id"] + [c for c, _ in LINGUISTIC_FACTOR_COLUMNS if c in df.columns]
-    cols += [c for c in ["metrics.wug_regular_prob", "metrics.wug_regular_prob_std"] if c in df.columns]
+    cols += [
+        c for c in ["metrics.wug_regular_prob", "metrics.wug_regular_prob_std"] if c in df.columns
+    ]
     top = df.head(10)[cols]
     try:
         return top.to_markdown(index=False)

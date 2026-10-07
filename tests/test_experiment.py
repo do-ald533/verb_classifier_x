@@ -230,3 +230,22 @@ def test_cli_validate_and_bad_config(tmp_path, capsys):
     broken["datasets"][0]["spec"]["D"] = 2
     bad.write_text(json.dumps(broken))
     assert cli_main(["validate", str(bad)]) == 2
+
+
+def test_cached_hashes_are_not_carried_over_by_with_seed():
+    from src.specs import NetworkSpec
+
+    base = NetworkSpec(hidden=(8,))
+    assert base.hash == base.hash  # cached, stable
+    seeded = base.with_seed(3)
+    assert seeded.hash != base.hash  # rebuilt, not a stale copy
+    assert seeded.with_seed(99).init_seed == 3  # explicit seeds are never overwritten
+    assert base.with_seed(3).hash == seeded.hash
+
+
+def test_tasks_receive_a_light_context_not_the_whole_experiment():
+    import pickle
+
+    exp = resolve_experiment(_cfg())
+    assert len(pickle.dumps(exp.context)) < len(pickle.dumps(exp)) / 3
+    assert exp.context.config_hash == exp.config_hash

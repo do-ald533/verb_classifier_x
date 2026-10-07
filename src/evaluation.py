@@ -15,7 +15,7 @@ from src.pruning import parameter_norm
 ACCURACY_THRESHOLDS = (0.5, 0.9, 0.99)
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def compute_metrics(model: nn.Module, dataset: Dataset) -> dict[str, float]:
     """All point-in-time metrics for a model on a dataset. Used for the
     training checkpoints and for the final (re-runnable) evaluation node, so
@@ -46,14 +46,15 @@ def compute_metrics(model: nn.Module, dataset: Dataset) -> dict[str, float]:
     return metrics
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def predictions(model: nn.Module, dataset: Dataset) -> dict[str, np.ndarray]:
     model.eval()
+    wug_prob = F.softmax(model(dataset.X_wug), dim=-1)
     return {
         "type_pred": model(dataset.X_types).argmax(dim=-1).numpy(),
         "type_true": dataset.y_types.numpy(),
-        "wug_pred": model(dataset.X_wug).argmax(dim=-1).numpy(),
-        "wug_prob": F.softmax(model(dataset.X_wug), dim=-1).numpy(),
+        "wug_pred": wug_prob.argmax(dim=-1).numpy(),
+        "wug_prob": wug_prob.numpy(),
     }
 
 

@@ -93,9 +93,7 @@ def make_objective(linguistic: LinguisticConfig):
 
                     result = train_one_run(linguistic, network, seed, report_intermediate)
 
-                    mlflow.log_metrics(
-                        {f"baseline_{k}": v for k, v in result.baseline.items()}
-                    )
+                    mlflow.log_metrics({f"baseline_{k}": v for k, v in result.baseline.items()})
                     mlflow.log_metric("wall_clock_seconds", result.wall_clock_seconds)
                     seed_results.append(result.final)
 
